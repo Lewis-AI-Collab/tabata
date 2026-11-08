@@ -11,7 +11,7 @@ A Mac, Flutter 3.47 stable, and Xcode. Plug the iPhone in, unlock it, and tap Tr
 Clone onto a normal local disk. Do not put the project in iCloud Drive, in Documents if that folder is synced, or in a Grok folder. Flutter's build tools fail on those paths.
 
 ```bash
-git clone https://github.com/LewisAGI/tabata.git
+git clone https://github.com/Lewis-AI-Collab/tabata.git
 cd tabata
 flutter pub get
 flutter run --release
