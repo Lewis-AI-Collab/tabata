@@ -11,10 +11,9 @@ no sampled audio.
 
 Spoken clips
 
-workout.wav, rest.wav, and count_1.wav through count_5.wav were synthesized
-with SVOX Pico (`pico2wave` from Debian libttspico-utils). Pico is under the
-Apache License 2.0. These files are generated speech of the single words
-"workout", "rest", "one", "two", "three", "four", and "five". They are not a
+workout.wav and rest.wav were synthesized with SVOX Pico (`pico2wave` from
+Debian libttspico-utils). Pico is under the Apache License 2.0. These files
+are generated speech of the single words "workout" and "rest". They are not a
 copy of the Pico source or its voice database.
 
 https://www.apache.org/licenses/LICENSE-2.0

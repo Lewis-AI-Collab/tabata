@@ -14,12 +14,11 @@ class Cue {
 }
 
 /// Per-second countdown sound. Flip [secondCueStyle] to silence the ticks
-/// or to speak the last [finalBeepSeconds] instead of beeping. The interval
-/// word ("workout" / "rest") is separate and still replaces that second.
-enum SecondCueStyle { tickThenBeep, silent, spoken }
+/// and beeps. The interval word ("workout" / "rest") is separate and still
+/// replaces that second when sound and voice are both on.
+enum SecondCueStyle { tickThenBeep, silent }
 
-/// Last seconds of an interval that use the sharp beep, or a spoken count
-/// when [secondCueStyle] is [SecondCueStyle.spoken].
+/// Last seconds of an interval that use the sharp beep.
 const int finalBeepSeconds = 5;
 
 const secondCueStyle = SecondCueStyle.tickThenBeep;
@@ -37,7 +36,7 @@ Cue? cueForSecond({
   bool voice = true,
   SecondCueStyle style = secondCueStyle,
 }) {
-  if (second < 1) {
+  if (second < 1 || !sound) {
     return null;
   }
   final lines = intervalStart ? voiceLines(phase) : const <String>[];
@@ -46,29 +45,9 @@ Cue? cueForSecond({
   }
   return switch (style) {
     SecondCueStyle.silent => null,
-    SecondCueStyle.spoken => _spokenCount(second, sound: sound, voice: voice),
-    SecondCueStyle.tickThenBeep => _tickThenBeep(second, sound: sound),
+    SecondCueStyle.tickThenBeep =>
+      second <= finalBeepSeconds ? const Cue.beep() : const Cue.tick(),
   };
-}
-
-Cue? _tickThenBeep(int second, {required bool sound}) {
-  if (!sound) {
-    return null;
-  }
-  if (second <= finalBeepSeconds) {
-    return const Cue.beep();
-  }
-  return const Cue.tick();
-}
-
-Cue? _spokenCount(int second, {required bool sound, required bool voice}) {
-  if (second > finalBeepSeconds) {
-    return sound ? const Cue.tick() : null;
-  }
-  if (voice) {
-    return Cue.voice('$second');
-  }
-  return sound ? const Cue.beep() : null;
 }
 
 enum RunStatus { ready, running, paused, finished, interrupted }

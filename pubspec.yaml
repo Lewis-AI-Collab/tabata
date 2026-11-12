@@ -1,7 +1,7 @@
 name: tabata
 description: Offline interval timer.
 publish_to: 'none'
-version: 1.1.0+2
+version: 1.1.0+3
 
 environment:
   sdk: ^3.13.5

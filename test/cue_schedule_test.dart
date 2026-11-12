@@ -177,7 +177,7 @@ void main() {
     expect(run.clock.sample().displaySeconds, 17);
   });
 
-  test('a skip plays only the second it lands on', () async {
+  test('a time jump plays only the second it lands on', () async {
     final run = _Run(_lane(work: 20, rest: 10, rounds: 2));
     await run.take();
     run.time.advance(const Duration(seconds: 8));
@@ -218,12 +218,13 @@ void main() {
     expect(run.sink.beeps, finalBeepSeconds + 1);
   });
 
-  test('sound off plays words only', () async {
+  test('sound off silences words as well as ticks and beeps', () async {
     final run = _Run(_lane(prep: 3, work: 4, rest: 2, rounds: 2), sound: false);
     await run.take();
     await run.seconds(13);
     expect(run.clock.status, RunStatus.finished);
-    expect(run.sink.played, ['workout', 'rest', 'workout']);
+    expect(run.sink.played, isEmpty);
+    expect(run.sink.spoken, isEmpty);
     expect(run.sink.ticks, 0);
     expect(run.sink.beeps, 0);
   });
@@ -260,9 +261,8 @@ void main() {
     expect(run.sink.played, isEmpty);
   });
 
-  test('silence and a spoken count stay behind one switch', () {
+  test('silence is the other per-second style', () {
     const work = Phase(kind: PhaseKind.work, seconds: 20, round: 1, rounds: 1);
-    const prep = Phase(kind: PhaseKind.prep, seconds: 8);
 
     expect(
       cueForSecond(
@@ -282,42 +282,13 @@ void main() {
       )!.text,
       'workout',
     );
-
-    final spoken = cueForSecond(
-      phase: prep,
-      second: 4,
-      intervalStart: false,
-      style: SecondCueStyle.spoken,
-    );
-    expect(spoken!.kind, CueKind.voice);
-    expect(spoken.text, '4');
-
-    final opening = cueForSecond(
-      phase: work,
-      second: 4,
-      intervalStart: true,
-      style: SecondCueStyle.spoken,
-    );
-    expect(opening!.text, 'workout');
-
     expect(
-      cueForSecond(
-        phase: work,
-        second: 4,
-        intervalStart: true,
-        voice: false,
-        style: SecondCueStyle.spoken,
-      )!.kind,
-      CueKind.beep,
+      cueForSecond(phase: work, second: 20, intervalStart: true, sound: false),
+      isNull,
     );
-    expect(
-      cueForSecond(
-        phase: work,
-        second: 12,
-        intervalStart: false,
-        style: SecondCueStyle.spoken,
-      )!.kind,
-      CueKind.tick,
-    );
+    expect(SecondCueStyle.values, [
+      SecondCueStyle.tickThenBeep,
+      SecondCueStyle.silent,
+    ]);
   });
 }

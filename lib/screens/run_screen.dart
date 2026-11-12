@@ -14,6 +14,12 @@ import '../widgets/icon_tip.dart';
 import '../widgets/run_view.dart';
 import 'scope.dart';
 
+/// How long a finishing beep is left to play before the session stops.
+///
+/// Playback starts and returns at once, and stopping the session cuts the
+/// clip. The beep is about 110 ms, so this waits it out.
+const finishTail = Duration(milliseconds: 250);
+
 class RunScreen extends StatefulWidget {
   const RunScreen({super.key, required this.preset, this.time, this.now});
 
@@ -76,6 +82,7 @@ class _RunScreenState extends State<RunScreen> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     _ticker?.cancel();
     _cues.onInterruptionEnd = null;
+    unawaited(_cues.cut());
     unawaited(_cues.end());
     unawaited(_wake.set(running: false, foreground: false));
     super.dispose();
@@ -130,7 +137,7 @@ class _RunScreenState extends State<RunScreen> with WidgetsBindingObserver {
     _pending = _pending.then((_) {
       final allowed = [
         for (final cue in cues)
-          if (cue.kind == CueKind.voice ? _voice : _sound) cue,
+          if (_sound && (cue.kind != CueKind.voice || _voice)) cue,
       ];
       return playCues(_cues, allowed);
     });
@@ -166,6 +173,7 @@ class _RunScreenState extends State<RunScreen> with WidgetsBindingObserver {
     } else {
       _clock.pause();
       _ticker?.cancel();
+      unawaited(_cues.cut());
       unawaited(_cues.end());
       unawaited(_wake.set(running: false, foreground: true));
     }
@@ -192,6 +200,11 @@ class _RunScreenState extends State<RunScreen> with WidgetsBindingObserver {
     _ticker?.cancel();
     _enqueue(cues);
     await _pending;
+    if (completed && cues.isNotEmpty) {
+      await Future<void>.delayed(finishTail);
+    } else {
+      await _cues.cut();
+    }
     await _cues.end();
     await _wake.set(running: false, foreground: false);
     final log = SessionLog.capture(

@@ -1,10 +1,38 @@
 import 'dart:async';
 
 import 'package:audio_session/audio_session.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:just_audio/just_audio.dart';
 
 import 'cues.dart';
+
+/// One in-flight [load], shared by every caller.
+///
+/// A success stays memoised. A failure is forgotten so the next call can try
+/// again. [begin] and the first tick both load the players; without this they
+/// call `setAsset` at the same time and just_audio aborts the keep-awake loop.
+class SharedLoad {
+  Future<void>? _pending;
+
+  Future<void> call(Future<void> Function() load) {
+    final pending = _pending;
+    if (pending != null) {
+      return pending;
+    }
+    final run = Future<void>.sync(load);
+    _pending = run;
+    return run.then<void>(
+      (_) {},
+      onError: (Object error, StackTrace stack) {
+        if (identical(_pending, run)) {
+          _pending = null;
+        }
+        Error.throwWithStackTrace(error, stack);
+      },
+    );
+  }
+}
 
 /// Resumes the silent loop when an interruption ends, then notifies the timer.
 ///
@@ -35,21 +63,38 @@ void handleAudioInterruption({
 /// for transient may-duck focus, so other apps may lower their volume while
 /// that session is active.
 ///
-/// Words and counts are bundled clips. Anything else falls back to the
+/// "workout" and "rest" are bundled clips. Anything else falls back to the
 /// platform voice. Clips are preloaded so a cue starts on the clock sample
 /// instead of waiting on a synthesizer.
 class DeviceCues implements CueSink {
+  DeviceCues({Future<void> Function()? load}) : _loadOverride = load;
+
   @override
   void Function()? onInterruptionEnd;
+
+  /// Playback mixes with other audio and does not yield to the silent switch.
+  /// Android may duck other apps, and it must not pause us when it does.
+  static const sessionConfig = AudioSessionConfiguration(
+    avAudioSessionCategory: AVAudioSessionCategory.playback,
+    avAudioSessionCategoryOptions: AVAudioSessionCategoryOptions.mixWithOthers,
+    avAudioSessionMode: AVAudioSessionMode.defaultMode,
+    androidAudioAttributes: AndroidAudioAttributes(
+      contentType: AndroidAudioContentType.speech,
+      usage: AndroidAudioUsage.media,
+    ),
+    androidAudioFocusGainType: AndroidAudioFocusGainType.gainTransientMayDuck,
+    androidWillPauseWhenDucked: false,
+  );
+
+  static const ttsCategory = IosTextToSpeechAudioCategory.playback;
+
+  static const ttsOptions = <IosTextToSpeechAudioCategoryOptions>[
+    IosTextToSpeechAudioCategoryOptions.mixWithOthers,
+  ];
 
   static const voiceAssets = <String, String>{
     'workout': 'assets/audio/workout.wav',
     'rest': 'assets/audio/rest.wav',
-    '1': 'assets/audio/count_1.wav',
-    '2': 'assets/audio/count_2.wav',
-    '3': 'assets/audio/count_3.wav',
-    '4': 'assets/audio/count_4.wav',
-    '5': 'assets/audio/count_5.wav',
   };
 
   final AudioPlayer _tick = AudioPlayer();
@@ -57,40 +102,44 @@ class DeviceCues implements CueSink {
   final AudioPlayer _bed = AudioPlayer();
   final Map<String, AudioPlayer> _voices = {};
   final FlutterTts _tts = FlutterTts();
+  final Future<void> Function()? _loadOverride;
+  final SharedLoad _gate = SharedLoad();
   var _ready = false;
   var _bedOn = false;
   var _listening = false;
 
-  Future<void> _ensure() async {
+  /// Loads the session and clips once, even if [begin] and a cue overlap.
+  @visibleForTesting
+  Future<void> ensureReady() => _ensure();
+
+  Future<void> _ensure() {
     if (_ready) {
-      return;
+      return Future<void>.value();
     }
+    return _gate.call(() async {
+      final override = _loadOverride;
+      if (override != null) {
+        await override();
+      } else {
+        await _openSession();
+      }
+      _ready = true;
+    });
+  }
+
+  Future<void> _openSession() async {
     final session = await AudioSession.instance;
-    await session.configure(
-      const AudioSessionConfiguration(
-        avAudioSessionCategory: AVAudioSessionCategory.playback,
-        avAudioSessionCategoryOptions:
-            AVAudioSessionCategoryOptions.mixWithOthers,
-        avAudioSessionMode: AVAudioSessionMode.defaultMode,
-        androidAudioAttributes: AndroidAudioAttributes(
-          contentType: AndroidAudioContentType.speech,
-          usage: AndroidAudioUsage.media,
-        ),
-        androidAudioFocusGainType:
-            AndroidAudioFocusGainType.gainTransientMayDuck,
-        androidWillPauseWhenDucked: false,
-      ),
-    );
+    await session.configure(sessionConfig);
     await session.setActive(true);
     await _tts.setSharedInstance(true);
-    await _tts.setIosAudioCategory(IosTextToSpeechAudioCategory.playback, [
-      IosTextToSpeechAudioCategoryOptions.mixWithOthers,
-    ]);
+    await _tts.setIosAudioCategory(ttsCategory, ttsOptions);
     await _tts.awaitSpeakCompletion(true);
     await _tts.setSpeechRate(0.48);
     await _tts.setVolume(1);
     await _tick.setAsset('assets/audio/tick.wav');
-    await _tick.setVolume(0.35);
+    // Softer than the beep (volume 1, louder waveform) and loud enough to
+    // sit over music.
+    await _tick.setVolume(0.6);
     await _beep.setAsset('assets/audio/beep.wav');
     await _beep.setVolume(1);
     for (final entry in voiceAssets.entries) {
@@ -105,7 +154,6 @@ class DeviceCues implements CueSink {
       _listening = true;
       session.interruptionEventStream.listen(_onInterruption);
     }
-    _ready = true;
   }
 
   /// A phone call, Siri, or an alarm stops the silent loop. When that
@@ -148,7 +196,6 @@ class DeviceCues implements CueSink {
   Future<void> end() async {
     try {
       _bedOn = false;
-      await cut();
       await _bed.stop();
     } on Object {
       // The player can already be released.

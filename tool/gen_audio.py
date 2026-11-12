@@ -98,16 +98,11 @@ def synthesize_word(path: Path, phrase: str) -> None:
 
 
 def main() -> None:
-    synth_tone(OUT / "tick.wav", freq=660, ms=28, amp=0.08)
+    synth_tone(OUT / "tick.wav", freq=660, ms=28, amp=0.14)
     synth_tone(OUT / "beep.wav", freq=1480, ms=110, amp=0.55, partial=0.35)
     words = {
         "workout.wav": "workout",
         "rest.wav": "rest",
-        "count_1.wav": "one",
-        "count_2.wav": "two",
-        "count_3.wav": "three",
-        "count_4.wav": "four",
-        "count_5.wav": "five",
     }
     for name, phrase in words.items():
         synthesize_word(OUT / name, phrase)
