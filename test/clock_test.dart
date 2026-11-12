@@ -25,7 +25,9 @@ void main() {
 
     final opened = clock.sample();
     expect(opened.displaySeconds, 20);
-    expect(opened.cues.map((cue) => cue.text), [null, 'round 1 of 2', 'work']);
+    expect(opened.cues, hasLength(1));
+    expect(opened.cues.single.kind, CueKind.voice);
+    expect(opened.cues.single.text, 'workout');
 
     time.advance(const Duration(seconds: 17));
     final atThree = clock.sample();
@@ -73,14 +75,16 @@ void main() {
     expect(landed.phaseIndex, 1);
     expect(landed.phase!.kind, PhaseKind.rest);
     expect(landed.remaining, const Duration(seconds: 5));
-    expect(landed.cues.map((cue) => cue.text), [null, 'rest']);
+    expect(landed.cues, hasLength(1));
+    expect(landed.cues.single.kind, CueKind.beep);
 
     time.advance(const Duration(seconds: 7));
     final next = clock.sample();
     expect(next.phaseIndex, 2);
     expect(next.phase!.round, 2);
     expect(next.displaySeconds, 18);
-    expect(next.cues.map((cue) => cue.text), [null, 'round 2 of 2', 'work']);
+    expect(next.cues, hasLength(1));
+    expect(next.cues.single.kind, CueKind.tick);
   });
 
   test('the stopwatch keeps elapsed time while nobody is sampling', () async {
@@ -115,8 +119,8 @@ void main() {
     expect(again.elapsed, const Duration(seconds: 50));
   });
 
-  test('a phase of 3 seconds or less does not beep twice as it opens', () {
-    for (final seconds in [1, 2, 3]) {
+  test('a short work interval speaks once and does not also beep', () {
+    for (final seconds in [1, 2, 3, 4, 5]) {
       final time = ManualTime();
       final clock = IntervalClock(
         IntervalPlan.fromPreset(
@@ -137,9 +141,10 @@ void main() {
       clock.start();
       final opened = clock.sample();
       expect(opened.displaySeconds, seconds, reason: '$seconds s');
+      expect(opened.cues.map((cue) => cue.text), ['workout']);
       expect(
         opened.cues.where((cue) => cue.kind == CueKind.beep),
-        hasLength(1),
+        isEmpty,
         reason: '$seconds s opening',
       );
 
@@ -149,7 +154,8 @@ void main() {
       time.advance(const Duration(seconds: 1));
       final next = clock.sample();
       expect(next.displaySeconds, seconds - 1);
-      expect(next.cues.where((cue) => cue.kind == CueKind.beep), hasLength(1));
+      expect(next.cues, hasLength(1));
+      expect(next.cues.single.kind, CueKind.beep);
     }
   });
 

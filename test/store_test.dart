@@ -6,6 +6,23 @@ import 'package:tabata/models/preset.dart';
 import 'package:tabata/models/session_log.dart';
 
 void main() {
+  test('sound and voice default on and survive a new store', () async {
+    final box = MemoryBox();
+    final store = TabataStore(box);
+    expect(store.soundOn, isTrue);
+    expect(store.voiceOn, isTrue);
+
+    await store.setSoundOn(false);
+    await store.setVoiceOn(false);
+    final again = TabataStore(box);
+    expect(again.soundOn, isFalse);
+    expect(again.voiceOn, isFalse);
+
+    await again.setSoundOn(true);
+    expect(TabataStore(box).soundOn, isTrue);
+    expect(TabataStore(box).voiceOn, isFalse);
+  });
+
   test('preset crud survives a new store on the same box', () async {
     final box = MemoryBox();
     final store = TabataStore(box);

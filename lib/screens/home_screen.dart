@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../models/preset.dart';
@@ -17,17 +19,40 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   List<Preset> _presets = [];
+  var _sound = true;
+  var _voice = true;
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    _presets = TabataScope.of(context).store.presets();
+    _read();
+  }
+
+  void _read() {
+    final store = TabataScope.of(context).store;
+    _presets = store.presets();
+    _sound = store.soundOn;
+    _voice = store.voiceOn;
   }
 
   void _reload() {
-    setState(() {
-      _presets = TabataScope.of(context).store.presets();
-    });
+    setState(_read);
+  }
+
+  Future<void> _toggleSound() async {
+    final next = !_sound;
+    await TabataScope.of(context).store.setSoundOn(next);
+    if (mounted) {
+      setState(() => _sound = next);
+    }
+  }
+
+  Future<void> _toggleVoice() async {
+    final next = !_voice;
+    await TabataScope.of(context).store.setVoiceOn(next);
+    if (mounted) {
+      setState(() => _voice = next);
+    }
   }
 
   Future<void> _open(Widget screen) async {
@@ -97,6 +122,20 @@ class _HomeScreenState extends State<HomeScreen> {
       appBar: AppBar(
         title: const Text('Tabata'),
         actions: [
+          IconTip(
+            key: const ValueKey('sound-toggle'),
+            icon: _sound ? Icons.volume_up : Icons.volume_off,
+            message: 'Sound',
+            color: _sound ? AppColors.accent : AppColors.muted,
+            onPressed: () => unawaited(_toggleSound()),
+          ),
+          IconTip(
+            key: const ValueKey('voice-toggle'),
+            icon: _voice ? Icons.record_voice_over : Icons.voice_over_off,
+            message: 'Voice',
+            color: _voice ? AppColors.accent : AppColors.muted,
+            onPressed: () => unawaited(_toggleVoice()),
+          ),
           IconTip(
             icon: Icons.history,
             message: 'Log',
