@@ -77,7 +77,7 @@ void main() {
     expect(plan.totalSeconds, 60);
   });
 
-  test('voice cues name the round', () {
+  test('voice cues say workout and rest', () {
     const phase = Phase(
       kind: PhaseKind.work,
       seconds: 20,
@@ -86,12 +86,20 @@ void main() {
       set: 1,
       sets: 1,
     );
-    expect(voiceLines(phase), ['round 3 of 8', 'work']);
+    expect(voiceLines(phase), ['workout']);
     expect(
       voiceLines(
         const Phase(kind: PhaseKind.rest, seconds: 10, round: 3, rounds: 8),
       ),
       ['rest'],
+    );
+    expect(voiceLines(const Phase(kind: PhaseKind.setRest, seconds: 30)), [
+      'rest',
+    ]);
+    expect(voiceLines(const Phase(kind: PhaseKind.prep, seconds: 10)), isEmpty);
+    expect(
+      voiceLines(const Phase(kind: PhaseKind.cooldown, seconds: 10)),
+      isEmpty,
     );
     expect(phaseLabel(phase), 'ROUND 3/8 · WORK');
   });

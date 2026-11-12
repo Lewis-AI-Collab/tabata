@@ -1,14 +1,53 @@
 import 'plan.dart';
 
-enum CueKind { beep, voice }
+enum CueKind { tick, beep, voice }
 
 class Cue {
+  const Cue.tick() : kind = CueKind.tick, text = null;
+
   const Cue.beep() : kind = CueKind.beep, text = null;
 
   const Cue.voice(this.text) : kind = CueKind.voice;
 
   final CueKind kind;
   final String? text;
+}
+
+/// Per-second countdown sound. Flip [secondCueStyle] to silence the ticks
+/// and beeps. The interval word ("workout" / "rest") is separate and still
+/// replaces that second when sound and voice are both on.
+enum SecondCueStyle { tickThenBeep, silent }
+
+/// Last seconds of an interval that use the sharp beep.
+const int finalBeepSeconds = 5;
+
+const secondCueStyle = SecondCueStyle.tickThenBeep;
+
+/// The sound for one displayed second, or null when that second stays quiet.
+///
+/// [intervalStart] is the first displayed second of a phase. A spoken
+/// interval word replaces the tick or beep for that second so the two do
+/// not play together. With voice off, the tick or beep is used instead.
+Cue? cueForSecond({
+  required Phase phase,
+  required int second,
+  required bool intervalStart,
+  bool sound = true,
+  bool voice = true,
+  SecondCueStyle style = secondCueStyle,
+}) {
+  if (second < 1 || !sound) {
+    return null;
+  }
+  final lines = intervalStart ? voiceLines(phase) : const <String>[];
+  if (lines.isNotEmpty && voice) {
+    return Cue.voice(lines.first);
+  }
+  return switch (style) {
+    SecondCueStyle.silent => null,
+    SecondCueStyle.tickThenBeep =>
+      second <= finalBeepSeconds ? const Cue.beep() : const Cue.tick(),
+  };
 }
 
 enum RunStatus { ready, running, paused, finished, interrupted }
@@ -239,7 +278,7 @@ class IntervalClock {
     return raw;
   }
 
-  ClockSample sample() {
+  ClockSample sample({bool sound = true, bool voice = true}) {
     final status = this.status;
     final elapsed = this.elapsed;
     if (plan.phases.isEmpty) {
@@ -258,26 +297,33 @@ class IntervalClock {
     final shown = displaySeconds(location.remaining);
     final cues = <Cue>[];
     if (status == RunStatus.running) {
-      if (location.index != _announced) {
+      // One cue per newly displayed second, taken from monotonic elapsed
+      // time. A late frame lands on the current second instead of catching
+      // up a burst, so the sounds cannot drift or double.
+      final entered = location.index != _announced;
+      if (entered) {
         _announced = location.index;
         _markedSecond = null;
-        cues.add(const Cue.beep());
-        for (final line in voiceLines(location.phase)) {
-          cues.add(Cue.voice(line));
-        }
       }
-      if (shown >= 1 && shown <= 3 && shown != _markedSecond) {
-        final opening =
-            _markedSecond == null &&
-            shown == displaySeconds(location.phase.duration);
+      if (shown >= 1 && shown != _markedSecond) {
+        final opening = entered && shown == location.phase.seconds;
         _markedSecond = shown;
-        if (!opening) {
-          cues.add(const Cue.beep());
+        final cue = cueForSecond(
+          phase: location.phase,
+          second: shown,
+          intervalStart: opening,
+          sound: sound,
+          voice: voice,
+        );
+        if (cue != null) {
+          cues.add(cue);
         }
       }
     } else if (status == RunStatus.finished && !_finishedCue) {
       _finishedCue = true;
-      cues.add(const Cue.beep());
+      if (sound) {
+        cues.add(const Cue.beep());
+      }
     }
     final durationMs = location.phase.duration.inMilliseconds;
     final progress = durationMs == 0

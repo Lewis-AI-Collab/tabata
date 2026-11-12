@@ -8,9 +8,17 @@ import '../models/preset.dart';
 import '../models/session_log.dart';
 import '../services/cues.dart';
 import '../services/wake.dart';
+import '../theme/app_theme.dart';
 import '../widgets/complete_sheet.dart';
+import '../widgets/icon_tip.dart';
 import '../widgets/run_view.dart';
 import 'scope.dart';
+
+/// How long a finishing beep is left to play before the session stops.
+///
+/// Playback starts and returns at once, and stopping the session cuts the
+/// clip. The beep is about 110 ms, so this waits it out.
+const finishTail = Duration(milliseconds: 250);
 
 class RunScreen extends StatefulWidget {
   const RunScreen({super.key, required this.preset, this.time, this.now});
@@ -37,6 +45,8 @@ class _RunScreenState extends State<RunScreen> with WidgetsBindingObserver {
   Timer? _ticker;
   Future<void> _pending = Future<void>.value();
   var _done = false;
+  var _sound = true;
+  var _voice = true;
 
   @override
   void initState() {
@@ -45,6 +55,8 @@ class _RunScreenState extends State<RunScreen> with WidgetsBindingObserver {
     final scope = TabataScope.read(context);
     _cues = scope.cues;
     _wake = scope.wake;
+    _sound = scope.store.soundOn;
+    _voice = scope.store.voiceOn;
     _startedAt = DateTime.now();
     _clock = IntervalClock(
       IntervalPlan.fromPreset(widget.preset),
@@ -58,7 +70,7 @@ class _RunScreenState extends State<RunScreen> with WidgetsBindingObserver {
       _onTick();
     };
     _clock.start();
-    _sample = _clock.sample();
+    _sample = _clock.sample(sound: _sound, voice: _voice);
     _enqueue(_sample!.cues);
     unawaited(_cues.begin());
     unawaited(_wake.set(running: true, foreground: true));
@@ -70,6 +82,7 @@ class _RunScreenState extends State<RunScreen> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     _ticker?.cancel();
     _cues.onInterruptionEnd = null;
+    unawaited(_cues.cut());
     unawaited(_cues.end());
     unawaited(_wake.set(running: false, foreground: false));
     super.dispose();
@@ -108,7 +121,7 @@ class _RunScreenState extends State<RunScreen> with WidgetsBindingObserver {
       unawaited(_finish(completed: false, interrupted: true, cues: const []));
       return;
     }
-    final next = _clock.sample();
+    final next = _clock.sample(sound: _sound, voice: _voice);
     setState(() => _sample = next);
     if (next.status == RunStatus.finished) {
       unawaited(_finish(completed: true, cues: next.cues));
@@ -121,7 +134,31 @@ class _RunScreenState extends State<RunScreen> with WidgetsBindingObserver {
     if (cues.isEmpty) {
       return;
     }
-    _pending = _pending.then((_) => playCues(_cues, cues));
+    _pending = _pending.then((_) {
+      final allowed = [
+        for (final cue in cues)
+          if (_sound && (cue.kind != CueKind.voice || _voice)) cue,
+      ];
+      return playCues(_cues, allowed);
+    });
+  }
+
+  Future<void> _toggleSound() async {
+    final next = !_sound;
+    setState(() => _sound = next);
+    await TabataScope.of(context).store.setSoundOn(next);
+    if (!next) {
+      await _cues.cut();
+    }
+  }
+
+  Future<void> _toggleVoice() async {
+    final next = !_voice;
+    setState(() => _voice = next);
+    await TabataScope.of(context).store.setVoiceOn(next);
+    if (!next) {
+      await _cues.cut();
+    }
   }
 
   Future<void> _togglePause() async {
@@ -136,6 +173,7 @@ class _RunScreenState extends State<RunScreen> with WidgetsBindingObserver {
     } else {
       _clock.pause();
       _ticker?.cancel();
+      unawaited(_cues.cut());
       unawaited(_cues.end());
       unawaited(_wake.set(running: false, foreground: true));
     }
@@ -162,6 +200,11 @@ class _RunScreenState extends State<RunScreen> with WidgetsBindingObserver {
     _ticker?.cancel();
     _enqueue(cues);
     await _pending;
+    if (completed && cues.isNotEmpty) {
+      await Future<void>.delayed(finishTail);
+    } else {
+      await _cues.cut();
+    }
     await _cues.end();
     await _wake.set(running: false, foreground: false);
     final log = SessionLog.capture(
@@ -194,16 +237,53 @@ class _RunScreenState extends State<RunScreen> with WidgetsBindingObserver {
     final kind = phase?.kind ?? PhaseKind.prep;
     return Scaffold(
       backgroundColor: tintFor(kind),
-      body: RunView(
-        label: phase == null ? 'PREP' : phaseLabel(phase),
-        seconds: sample?.displaySeconds ?? 0,
-        progress: sample?.progress ?? 0,
-        elapsed: sample?.elapsed ?? Duration.zero,
-        paused: sample?.status == RunStatus.paused,
-        tint: tintFor(kind),
-        ring: ringFor(kind),
-        onPause: () => unawaited(_togglePause()),
-        onStop: () => unawaited(_stop()),
+      body: Stack(
+        children: [
+          RunView(
+            label: phase == null ? 'PREP' : phaseLabel(phase),
+            seconds: sample?.displaySeconds ?? 0,
+            progress: sample?.progress ?? 0,
+            elapsed: sample?.elapsed ?? Duration.zero,
+            paused: sample?.status == RunStatus.paused,
+            tint: tintFor(kind),
+            ring: ringFor(kind),
+            onPause: () => unawaited(_togglePause()),
+            onStop: () => unawaited(_stop()),
+          ),
+          Positioned(
+            top: 0,
+            right: 0,
+            child: SafeArea(
+              left: false,
+              right: false,
+              bottom: false,
+              child: Padding(
+                padding: const EdgeInsets.only(right: 4),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconTip(
+                      key: const ValueKey('sound-toggle'),
+                      icon: _sound ? Icons.volume_up : Icons.volume_off,
+                      message: 'Sound',
+                      color: _sound ? AppColors.accent : AppColors.muted,
+                      onPressed: () => unawaited(_toggleSound()),
+                    ),
+                    IconTip(
+                      key: const ValueKey('voice-toggle'),
+                      icon: _voice
+                          ? Icons.record_voice_over
+                          : Icons.voice_over_off,
+                      message: 'Voice',
+                      color: _voice ? AppColors.accent : AppColors.muted,
+                      onPressed: () => unawaited(_toggleVoice()),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

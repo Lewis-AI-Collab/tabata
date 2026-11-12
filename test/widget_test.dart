@@ -93,7 +93,8 @@ void main() {
     expect(wake.enabled, isTrue);
     expect(cues.bed, isTrue);
     expect(cues.spoken, isEmpty);
-    expect(cues.beeps, 1);
+    expect(cues.ticks, 1);
+    expect(cues.beeps, 0);
 
     await tester.tap(find.byTooltip('Pause'));
     await tester.pump();
@@ -105,6 +106,8 @@ void main() {
     await tester.pump();
     expect(find.byTooltip('Pause'), findsOneWidget);
     expect(wake.enabled, isTrue);
+    expect(cues.ticks, 1);
+    expect(cues.played, ['tick']);
 
     await tester.tap(find.byTooltip('Stop'));
     await tester.pump();
@@ -267,4 +270,196 @@ void main() {
     expect(find.text('Stopped early'), findsNothing);
     expect(find.text('Completed'), findsNothing);
   });
+
+  testWidgets('sound and voice icons are remembered', (tester) async {
+    final store = await seeded();
+    await tester.pumpWidget(app(store));
+    await tester.pumpAndSettle();
+    expect(_icon(tester, 'sound-toggle').icon, Icons.volume_up);
+    expect(_icon(tester, 'voice-toggle').icon, Icons.record_voice_over);
+
+    await tester.tap(find.byKey(const ValueKey('sound-toggle')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('voice-toggle')));
+    await tester.pumpAndSettle();
+    expect(_icon(tester, 'sound-toggle').icon, Icons.volume_off);
+    expect(_icon(tester, 'voice-toggle').icon, Icons.voice_over_off);
+    expect(store.soundOn, isFalse);
+    expect(store.voiceOn, isFalse);
+
+    await tester.pumpWidget(app(store));
+    await tester.pumpAndSettle();
+    expect(_icon(tester, 'sound-toggle').icon, Icons.volume_off);
+    expect(_icon(tester, 'voice-toggle').icon, Icons.voice_over_off);
+  });
+
+  testWidgets('a muted run stays quiet and does not tick again', (
+    tester,
+  ) async {
+    final store = await seeded();
+    final cues = SilentCues();
+    final time = ManualTime();
+    await tester.pumpWidget(
+      app(
+        store,
+        cues: cues,
+        home: RunScreen(preset: Preset.classic, time: time),
+      ),
+    );
+    await tester.pump();
+    expect(cues.played, ['tick']);
+
+    await tester.tap(find.byKey(const ValueKey('sound-toggle')));
+    await tester.pump();
+    expect(_icon(tester, 'sound-toggle').icon, Icons.volume_off);
+    time.advance(const Duration(seconds: 1));
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(cues.played, ['tick']);
+    expect(cues.ticks, 1);
+    expect(store.soundOn, isFalse);
+
+    final again = SilentCues();
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpWidget(
+      app(
+        store,
+        cues: again,
+        home: RunScreen(preset: Preset.classic, time: ManualTime()),
+      ),
+    );
+    await tester.pump();
+    expect(again.played, isEmpty);
+    expect(_icon(tester, 'sound-toggle').icon, Icons.volume_off);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('sound off silences the spoken word', (tester) async {
+    final store = await seeded();
+    await store.setSoundOn(false);
+    final muted = SilentCues();
+    await tester.pumpWidget(
+      app(
+        store,
+        cues: muted,
+        home: RunScreen(preset: _work, time: ManualTime()),
+      ),
+    );
+    await tester.pump();
+    expect(muted.played, isEmpty);
+    expect(muted.spoken, isEmpty);
+
+    await store.setSoundOn(true);
+    await store.setVoiceOn(false);
+    final tones = SilentCues();
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpWidget(
+      app(
+        store,
+        cues: tones,
+        home: RunScreen(preset: _work, time: ManualTime()),
+      ),
+    );
+    await tester.pump();
+    expect(tones.spoken, isEmpty);
+    expect(tones.played, ['tick']);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('the finish beep is not cut until the tail', (tester) async {
+    final store = await seeded();
+    final cues = _RecordingCues();
+    final time = ManualTime();
+    await tester.pumpWidget(
+      app(
+        store,
+        cues: cues,
+        home: RunScreen(
+          preset: const Preset(
+            id: 'one',
+            name: 'One',
+            prep: 0,
+            work: 1,
+            rest: 0,
+            rounds: 1,
+            sets: 1,
+            setRest: 0,
+            cooldown: 0,
+          ),
+          time: time,
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(cues.log, ['begin', 'workout']);
+
+    time.advance(const Duration(seconds: 1));
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(cues.log, ['begin', 'workout', 'beep']);
+
+    await tester.pump(finishTail - const Duration(milliseconds: 1));
+    expect(cues.log, ['begin', 'workout', 'beep']);
+
+    await tester.pump(const Duration(milliseconds: 1));
+    expect(cues.log, ['begin', 'workout', 'beep', 'end']);
+    expect(cues.log, isNot(contains('cut')));
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+}
+
+const _work = Preset(
+  id: 'work',
+  name: 'Work',
+  prep: 0,
+  work: 20,
+  rest: 10,
+  rounds: 1,
+  sets: 1,
+  setRest: 0,
+  cooldown: 0,
+);
+
+class _RecordingCues extends SilentCues {
+  final List<String> log = [];
+
+  @override
+  Future<void> begin() async {
+    log.add('begin');
+    await super.begin();
+  }
+
+  @override
+  Future<void> end() async {
+    log.add('end');
+    await super.end();
+  }
+
+  @override
+  Future<void> cut() async {
+    log.add('cut');
+    await super.cut();
+  }
+
+  @override
+  Future<void> beep() async {
+    log.add('beep');
+    await super.beep();
+  }
+
+  @override
+  Future<void> tick() async {
+    log.add('tick');
+    await super.tick();
+  }
+
+  @override
+  Future<void> speak(String text) async {
+    log.add(text);
+    await super.speak(text);
+  }
+}
+
+Icon _icon(WidgetTester tester, String key) {
+  return tester.widget<Icon>(
+    find.descendant(of: find.byKey(ValueKey(key)), matching: find.byType(Icon)),
+  );
 }

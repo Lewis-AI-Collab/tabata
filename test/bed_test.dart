@@ -16,6 +16,28 @@ void main() {
     expect(wav.samples, isNotEmpty);
     expect(wav.peak, 0);
   });
+
+  test('tick is a short soft tone and beep is sharper', () async {
+    final tick = _Wav.parse(await rootBundle.load('assets/audio/tick.wav'));
+    final beep = _Wav.parse(await rootBundle.load('assets/audio/beep.wav'));
+    expect(tick.audioFormat, 1);
+    expect(tick.channels, 1);
+    expect(tick.bitsPerSample, 16);
+    expect(tick.peak, greaterThan(3000));
+    expect(beep.peak, greaterThan(tick.peak * 2));
+    expect(tick.samples.length, lessThan(beep.samples.length));
+    expect(tick.samples.length / tick.sampleRate, lessThan(0.05));
+  });
+
+  test('spoken clips are non-silent and shorter than a second', () async {
+    for (final name in ['workout.wav', 'rest.wav']) {
+      final wav = _Wav.parse(await rootBundle.load('assets/audio/$name'));
+      expect(wav.audioFormat, 1, reason: name);
+      expect(wav.channels, 1, reason: name);
+      expect(wav.peak, greaterThan(1000), reason: name);
+      expect(wav.samples.length / wav.sampleRate, lessThan(1), reason: name);
+    }
+  });
 }
 
 class _Wav {

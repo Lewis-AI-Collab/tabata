@@ -41,6 +41,21 @@ class TabataStore {
 
   static const presetsKey = 'presets.v1';
   static const sessionsKey = 'sessions.v1';
+  static const soundKey = 'sound.v1';
+  static const voiceKey = 'voice.v1';
+
+  /// Missing keys stay on, so a first launch ticks and speaks.
+  bool get soundOn => box.read(soundKey) != '0';
+
+  bool get voiceOn => box.read(voiceKey) != '0';
+
+  Future<void> setSoundOn(bool value) {
+    return box.write(soundKey, value ? '1' : '0');
+  }
+
+  Future<void> setVoiceOn(bool value) {
+    return box.write(voiceKey, value ? '1' : '0');
+  }
 
   Future<void> ensureSeed() async {
     if (box.read(presetsKey) != null) {

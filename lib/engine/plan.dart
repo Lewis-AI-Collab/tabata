@@ -90,9 +90,11 @@ class IntervalPlan {
   }
 }
 
+/// One spoken word at the start of work or rest. Prep and cooldown stay
+/// quiet. The round stays on screen; it is not spoken.
 List<String> voiceLines(Phase phase) {
   return switch (phase.kind) {
-    PhaseKind.work => ['round ${phase.round} of ${phase.rounds}', 'work'],
+    PhaseKind.work => const ['workout'],
     PhaseKind.rest || PhaseKind.setRest => const ['rest'],
     PhaseKind.prep || PhaseKind.cooldown => const [],
   };
